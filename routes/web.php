@@ -4,52 +4,71 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\StrayPetController;
+use App\Http\Controllers\Admin\IndependentTeamController;
+use App\Http\Controllers\Admin\GovernorateController;
+use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\PageController;
+use App\Http\Controllers\ProfileController;
 
-// صفحة الهبوط الافتراضية
-Route::get('/', function () {
-    return view('welcome');
-});
+// تعطيل مسار التسجيل العام، مع إبقاء مسارات تسجيل الدخول والخروج
+Auth::routes(['register' => true]);
 
-// مسارات المصادقة الجاهزة (Login, Register, Logout)
-Auth::routes();
-
-// مسار عرض الملف العام للحيوان الشارد (متاح للجميع، حتى الضيوف)
-// هذا هو الرابط الذي يجب أن يكون في الـ QR Code
+// --- الصفحات العامة ---
+Route::get('language/{locale}', [PageController::class, 'switchLang'])->name('language.switch');
+Route::get('/', [PageController::class, 'landing'])->name('landing');
+Route::get('/about', [PageController::class, 'about'])->name('pages.about');
+Route::get('/team', [PageController::class, 'team'])->name('pages.team');
+Route::get('/contact', [PageController::class, 'contact'])->name('pages.contact');
 Route::get('/public/stray-pets/{uuid}', [StrayPetController::class, 'showPublic'])->name('stray-pets.public-view');
 
-// جميع المسارات التي تتطلب تسجيل الدخول (Authentication)
+
+// --- المسارات التي تتطلب تسجيل الدخول ---
 Route::middleware(['auth'])->group(function () {
     
-    // لوحة التحكم (Dashboard)
+    // لوحة التحكم الرئيسية (تعتمد على الدور)
     Route::get('/home', [HomeController::class, 'index'])->name('home');
 
-    // المسارات المخصصة للمدير ومدخل البيانات فقط
+    // --- المسارات المشتركة بين المدير ومدخل البيانات ---
     Route::middleware(['role:admin,data_entry'])->group(function () {
-
-        // صفحة سجل الباركودات / قائمة الحيوانات الشاردة
+        // سجل الحيوانات
         Route::get('/stray-pets', [StrayPetController::class, 'index'])->name('stray-pets.index');
-        Route::get('/stray-pets/log', [StrayPetController::class, 'index'])->name('stray-pets.log'); 
-
-        // مسار عرض نموذج إدخال/تعديل البيانات
-        // هذا المسار لا يمكن الوصول إليه كضيف
-        Route::get('/stray-pets/data-entry/{uuid}', [StrayPetController::class, 'create'])->name('stray-pets.data-entry-form');
         
-        // مسار POST لحفظ البيانات من نموذج الإدخال/التعديل
+        // إدخال وتعديل بيانات حيوان
+        Route::get('/stray-pets/data-entry/{stray_pet}', [StrayPetController::class, 'edit'])->name('stray-pets.data-entry')->middleware('auth', 'pet.data_entry_access');
         Route::post('/stray-pets/save-data', [StrayPetController::class, 'storeOrUpdate'])->name('stray-pets.store-or-update');
         
-        // مسار عرض تفاصيل حيوان (الزر في السجل)، يوجه إلى صفحة التعديل
+        // عرض تفاصيل حيوان (للمستخدمين المسجلين)
         Route::get('/stray-pets/show/{uuid}', [StrayPetController::class, 'show'])->name('stray-pets.show');
 
-        // مسارات حذف الحيوانات الشاردة (فردي وجماعي)
+        // حذف (إرسال إلى سلة المهملات)
         Route::delete('/stray-pets/{uuid}', [StrayPetController::class, 'destroy'])->name('stray-pets.destroy');
-        Route::delete('/stray-pets/bulk-destroy', [StrayPetController::class, 'bulkDestroy'])->name('stray-pets.bulk-destroy');
-        
-        // مسارات توليد أكواد QR
+        Route::post('/stray-pets/bulk-destroy', [StrayPetController::class, 'bulkDestroy'])->name('stray-pets.bulk-destroy');
+
+        // توليد وطباعة QR
         Route::get('/qrcodes/stray/generate', [StrayPetController::class, 'showQRGenerationForm'])->name('qrcodes.stray.generate.form');
         Route::post('/qrcodes/stray/generate', [StrayPetController::class, 'generateQRCodes'])->name('qrcodes.stray.generate.submit');
-        
-        // مسار طباعة أكواد QR إلى PDF
         Route::post('/qrcodes/stray/print-pdf', [StrayPetController::class, 'printQRCodes'])->name('qrcodes.stray.print.pdf');
+    });
+
+    // --- المسارات الخاصة بالمدير فقط ---
+    Route::middleware(['role:admin'])->prefix('admin')->name('admin.')->group(function () {
+        Route::resource('teams', IndependentTeamController::class);
+        Route::resource('governorates', GovernorateController::class);
+        Route::resource('users', UserController::class);
+        
+        // مسارات سلة المهملات
+        Route::get('trash', [StrayPetController::class, 'trashIndex'])->name('trash.index');
+        Route::post('trash/{id}/restore', [StrayPetController::class, 'trashRestore'])->name('trash.restore');
+        Route::delete('trash/{id}/delete', [StrayPetController::class, 'trashDestroy'])->name('trash.destroy');
+    });
+
+    // --- مسارات الملف الشخصي (لكل المستخدمين المسجلين) ---
+    Route::prefix('profile')->name('profile.')->group(function () {
+        Route::get('/', [ProfileController::class, 'edit'])->name('edit');
+        Route::patch('/', [ProfileController::class, 'update'])->name('update');
+        Route::delete('/', [ProfileController::class, 'destroy'])->name('destroy');
+        // طلب ترقية الحساب إلى فريق
+        Route::post('/request-team-upgrade', [ProfileController::class, 'requestTeamUpgrade'])->name('request-team-upgrade');
     });
 
 });

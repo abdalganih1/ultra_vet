@@ -4,11 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str; // لاستخدام UUID
 
 class StrayPet extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'uuid', 'serial_number', 'city_province', 'relocation_place',
@@ -16,7 +17,11 @@ class StrayPet extends Model
         'estimated_age', 'color', 'distinguishing_marks', 'image_path',
         'medical_procedures', 'parasite_treatments', 'vaccinations_details',
         'medical_supervisor_info', 'emergency_contact_phone',
-        'created_by', 'last_updated_by'
+        'created_by', 'last_updated_by', 'independent_team_id',
+        'supervising_association', 'data_entered_status',
+        // English fields
+        'breed_name_en', 'color_en', 'distinguishing_marks_en',
+        'city_province_en', 'relocation_place_en',
     ];
 
     protected $casts = [
@@ -61,5 +66,10 @@ class StrayPet extends Model
     public function qrCodeLink()
     {
         return $this->hasOne(StrayQrCodeLink::class);
+    }
+
+    public function independentTeam()
+    {
+        return $this->belongsTo(IndependentTeam::class, 'independent_team_id');
     }
 }

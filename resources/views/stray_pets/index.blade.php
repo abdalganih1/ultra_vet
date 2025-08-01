@@ -1,60 +1,111 @@
 @extends('layouts.app')
 
-@section('title', 'قائمة الحيوانات الشاردة')
+@section('title', __('messages.pet_registry'))
 
 @section('content')
-<div class="container mt-4">
+<div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="display-6 fw-light">قائمة الحيوانات الشاردة</h1>
-        <div>
-             <a href="{{ route('qrcodes.stray.generate.form') }}" class="btn btn-primary me-2"><i class="fas fa-qrcode me-1"></i> توليد QR جديد</a>
-        </div>
+        <h1>@lang('messages.pet_registry')</h1>
+        <a href="{{ route('qrcodes.stray.generate.form') }}" class="btn btn-primary"><i class="fas fa-plus me-2"></i>@lang('messages.generate_new_qrs')</a>
     </div>
-    <hr>
 
-    <div class="row g-4">
-        @forelse ($strayPets as $pet)
-        <div class="col-md-6 col-lg-4">
-            <div class="card pet-card shadow-sm h-100">
-                <img src="{{ $pet->image_path ? asset('storage/' . $pet->image_path) : asset('images/dog-placeholder.jpg') }}" class="card-img-top" alt="صورة {{ $pet->serial_number }}">
-                <div class="card-body d-flex flex-column">
-                    <h5 class="card-title fw-bold">{{ $pet->serial_number ?? 'غير مسمى' }}
-                        <i class="fas fa-{{ $pet->animal_type == 'dog_baladi' || $pet->animal_type == 'dog_breed' ? 'dog' : ($pet->animal_type == 'cat_baladi' || $pet->animal_type == 'cat_breed' ? 'cat' : 'paw') }} ms-1 text-muted"></i>
-                    </h5>
-                    <p class="card-text text-muted">
-                        النوع: {{ $pet->animal_type ?? 'غير محدد' }}
-                        @if($pet->custom_animal_type) ({{ $pet->custom_animal_type }}) @endif
-                        @if($pet->breed_name) / السلالة: {{ $pet->breed_name }} @endif
-                    </p>
-                    <p class="card-text small">
-                        العمر التقديري: {{ $pet->estimated_age ?? 'غير محدد' }}
-                        <br>
-                        المكان: {{ $pet->relocation_place ?? 'غير محدد' }}
-                    </p>
-                    <div class="mt-auto text-center">
-                        <a href="{{ route('stray-pets.show', $pet->uuid) }}" class="btn btn-primary w-100"><i class="fas fa-eye me-1"></i> عرض/تعديل البيانات</a>
-                    </div>
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <form action="{{ route('stray-pets.index') }}" method="GET" class="d-flex flex-wrap gap-2">
+                <div class="flex-grow-1">
+                    <input type="text" name="search" class="form-control" placeholder="@lang('messages.search_placeholder')" value="{{ request('search') }}">
                 </div>
-                <div class="card-footer text-muted small d-flex justify-content-between align-items-center">
-                    <span>UUID: {{ $pet->uuid }}</span>
-                    @if($pet->qrCodeLink)
-                    <a href="{{ asset('storage/' . $pet->qrCodeLink->qr_image_path) }}" download class="btn btn-link btn-sm p-0 ms-2" title="تحميل QR Code"><i class="fas fa-download"></i></a>
-                    <form action="{{ route('stray-pets.destroy', $pet->uuid) }}" method="POST" class="d-inline">
-                        @csrf
-                        @method('DELETE')
-                        <button type="submit" class="btn btn-sm btn-danger px-2 py-1 ms-2" onclick="return confirm('هل أنت متأكد من حذف هذا الحيوان؟ سيتم حذف جميع بياناته ورمز QR.')" title="حذف الحيوان"><i class="fas fa-trash"></i></button>
-                    </form>
-                    @endif
+                <div>
+                    <select name="status_filter" class="form-select">
+                        <option value="">@lang('messages.all_statuses')</option>
+                        <option value="entered" {{ request('status_filter') == 'entered' ? 'selected' : '' }}>@lang('messages.pets_data_entered')</option>
+                        <option value="pending" {{ request('status_filter') == 'pending' ? 'selected' : '' }}>@lang('messages.pending_data')</option>
+                    </select>
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-info">@lang('messages.filter')</button>
+                    <a href="{{ route('stray-pets.index') }}" class="btn btn-secondary">@lang('messages.clear')</a>
+                </div>
+            </form>
+        </div>
+        <form action="{{ route('stray-pets.bulk-destroy') }}" method="POST" id="bulk-action-form">
+            @csrf
+            <div class="card-body">
+                <div class="mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="select-all">@lang('messages.select_all')</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="deselect-all">@lang('messages.deselect_all')</button>
+                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('@lang('messages.confirm_move_to_trash')');">
+                        <i class="fas fa-trash me-1"></i> @lang('messages.move_selected_to_trash')
+                    </button>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="print-selected">
+                        <i class="fas fa-print me-1"></i> @lang('messages.print_selected_pdf')
+                    </button>
+                </div>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 row-cols-xl-6 g-4">
+                    @forelse ($strayPets as $pet)
+                        <div class="col">
+                            <div class="card h-100 pet-card {{ $pet->data_entered_status ? 'border-success' : 'border-danger' }}">
+                                <div class="card-header text-center">
+                                    <input type="checkbox" class="form-check-input pet-checkbox" name="uuids[]" value="{{ $pet->uuid }}">
+                                </div>
+                                @if($pet->image_path)
+                                    <img src="{{ asset('storage/' . $pet->image_path) }}" class="card-img-top" alt="Pet Image" style="height: 150px; object-fit: cover;">
+                                @else
+                                    <div class="d-flex align-items-center justify-content-center" style="height: 150px; background-color: #f8f9fa;">
+                                        <i class="fas fa-paw fa-3x text-muted"></i>
+                                    </div>
+                                @endif
+                                <div class="card-body">
+                                    <h6 class="card-title">@lang('messages.serial_number_short'): {{ $pet->serial_number ?? 'N/A' }}</h6>
+                                    <p class="card-text small text-muted">
+                                        UUID: {{ Str::limit($pet->uuid, 8, '...') }}<br>
+                                        @lang('messages.team'): {{ $pet->independentTeam->name ?? 'N/A' }}
+                                    </p>
+                                </div>
+                                <div class="card-footer text-center">
+                                    <a href="{{ route('stray-pets.public-view', $pet->uuid) }}" class="btn btn-sm btn-outline-info" title="@lang('messages.public_view')"><i class="fas fa-eye"></i></a>
+                                    <a href="{{ route('stray-pets.data-entry', $pet->id) }}" class="btn btn-sm btn-outline-warning" title="@lang('messages.edit_data')"><i class="fas fa-edit"></i></a>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="col-12">
+                            <p class="text-center">@lang('messages.no_pets_found')</p>
+                        </div>
+                    @endforelse
                 </div>
             </div>
-        </div>
-        @empty
-        <div class="col-12">
-            <div class="alert alert-info text-center">
-                <i class="fas fa-info-circle me-2"></i>لا توجد حيوانات شاردة مسجلة بعد. <a href="{{ route('qrcodes.stray.generate.form') }}">قم بتوليد أول QR Code!</a>
+            @if($strayPets->hasPages())
+            <div class="card-footer">
+                {{ $strayPets->links() }}
             </div>
-        </div>
-        @endforelse
+            @endif
+        </form>
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+    document.getElementById('select-all').addEventListener('click', function() {
+        document.querySelectorAll('.pet-checkbox').forEach(checkbox => checkbox.checked = true);
+    });
+
+    document.getElementById('deselect-all').addEventListener('click', function() {
+        document.querySelectorAll('.pet-checkbox').forEach(checkbox => checkbox.checked = false);
+    });
+
+    document.getElementById('print-selected').addEventListener('click', function() {
+        const form = document.getElementById('bulk-action-form');
+        const originalAction = form.action;
+        
+        form.action = "{{ route('qrcodes.stray.print.pdf') }}";
+        form.target = '_blank'; // Open in a new tab
+        form.submit();
+        
+        // Reset action and target after submission
+        form.action = originalAction;
+        form.target = '_self';
+    });
+</script>
+@endpush

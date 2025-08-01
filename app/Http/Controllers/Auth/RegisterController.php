@@ -8,6 +8,9 @@ use Illuminate\Foundation\Auth\RegistersUsers;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
+use App\Models\Governorate;
+use App\Models\IndependentTeam;
+
 class RegisterController extends Controller
 {
     /*
@@ -22,6 +25,19 @@ class RegisterController extends Controller
     */
 
     use RegistersUsers;
+
+    /**
+     * Show the application registration form.
+     *
+     * @return \Illuminate\View\View
+     */
+    public function showRegistrationForm()
+    {
+        $governorates = Governorate::all();
+        $independentTeams = IndependentTeam::all();
+        return view('auth.register', compact('governorates', 'independentTeams'));
+    }
+
 
     /**
      * Where to redirect users after registration.
@@ -50,8 +66,12 @@ class RegisterController extends Controller
     {
         return Validator::make($data, [
             'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', 'unique:users'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'phone_number' => ['required', 'string', 'max:255'],
+            'governorate_id' => ['required', 'exists:governorates,id'],
+            'independent_team_id' => ['required', 'exists:independent_teams,id'],
         ]);
     }
 
@@ -65,8 +85,13 @@ class RegisterController extends Controller
     {
         return User::create([
             'name' => $data['name'],
+            'username' => $data['username'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
+            'phone_number' => $data['phone_number'],
+            'governorate_id' => $data['governorate_id'],
+            'independent_team_id' => $data['independent_team_id'],
+            'role' => 'team_request', // Set default role to team_request
         ]);
     }
 }

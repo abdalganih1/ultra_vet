@@ -32,7 +32,7 @@
                                 <img src="{{ $qr['qr_image_data_uri'] }}" alt="QR Code for {{ $qr['strayPet']->serial_number ?? $qr['strayPet']->uuid }}" class="img-fluid mb-2" style="max-width: 150px;">
                                 <p class="small text-muted">{{ $qr['strayPet']->uuid }}</p>
                                 <a href="{{ $qr['qr_file_path'] }}" download="{{ ($qr['strayPet']->serial_number ?? $qr['strayPet']->uuid) }}_qrcode.png" class="btn btn-sm btn-success"><i class="fas fa-download me-1"></i>تحميل</a>
-                                <a href="{{ route('stray-pets.data-entry-form', ['uuid' => $qr['strayPet']->uuid]) }}" target="_blank" class="btn btn-sm btn-info text-white mt-2 mt-md-0 ms-md-1"><i class="fas fa-edit me-1"></i>إدخال بيانات</a>
+                                <a href="{{ route('stray-pets.data-entry', ['stray_pet' => $qr['strayPet']->id]) }}" target="_blank" class="btn btn-sm btn-info text-white mt-2 mt-md-0 ms-md-1"><i class="fas fa-edit me-1"></i>إدخال بيانات</a>
                             </div>
                         </div>
                     </div>

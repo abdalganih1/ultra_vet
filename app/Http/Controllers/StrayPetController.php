@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\StrayPet;
+use App\Models\IndependentTeam;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -24,6 +25,7 @@ class StrayPetController extends Controller
         $this->middleware('role:admin,data_entry')->only([
             'index',            // قائمة الحيوانات الشاردة
             'create',           // عرض نموذج إدخال/تعديل البيانات
+            'edit',             // عرض نموذج إدخال/تعديل البيانات
             'storeOrUpdate',    // حفظ البيانات
             'show',             // عرض تفاصيل (يوجه للتعديل)
             'destroy',          // حذف فردي
@@ -40,39 +42,38 @@ class StrayPetController extends Controller
      */
     public function index(Request $request)
     {
-        $query = StrayPet::with('qrCodeLink'); // تحميل علاقة الـ QR Code مباشرة
+        $query = StrayPet::with('qrCodeLink', 'independentTeam'); // Eager load relationships
 
-        // تطبيق البحث إذا تم إدخال مصطلح بحث
+        // Filter by data entry status
+        if ($request->filled('status_filter')) {
+            if ($request->status_filter === 'entered') {
+                $query->where('data_entered_status', true);
+            } elseif ($request->status_filter === 'pending') {
+                $query->where('data_entered_status', false);
+            }
+        }
+
+        // Filter by search term
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('serial_number', 'like', '%' . $search . '%')
                   ->orWhere('uuid', 'like', '%' . $search . '%')
-                  ->orWhere('animal_type', 'like', '%' . $search . '%');
+                  ->orWhere('animal_type', 'like', '%' . $search . '%')
+                  ->orWhereHas('independentTeam', function ($teamQuery) use ($search) {
+                      $teamQuery->where('name', 'like', '%' . $search . '%');
+                  });
             });
         }
-        
-        $strayPetsWithQRs = $query->latest()->paginate(12); // الترتيب حسب الأحدث وتصفح النتائج
 
-        // تجهيز البيانات لعرضها في الـ View
-        $qrsToDisplay = [];
-        foreach ($strayPetsWithQRs as $pet) {
-            // توليد Data URI لكل QR Code للعرض المباشر في الـ View (بدون حفظ ملف مؤقت)
-            $qr_data_uri = (new QRCode(new QROptions(['outputType' => QRCode::OUTPUT_IMAGE_PNG, 'scale' => 10])))
-                            ->render(route('stray-pets.data-entry-form', ['uuid' => $pet->uuid]));
-
-            $qrsToDisplay[] = [
-                'strayPet' => $pet,
-                'qr_image_data_uri' => $qr_data_uri,
-                'qr_file_path' => $pet->qrCodeLink ? Storage::url($pet->qrCodeLink->qr_image_path) : null // مسار الملف المحفوظ للتحميل
-            ];
+        // Scope for non-admin users
+        if (Auth::user()->isDataEntry()) {
+            $query->where('independent_team_id', Auth::user()->independent_team_id);
         }
         
-        // تمرير البيانات إلى View الخاص بالسجل/المعرض
-        return view('stray_pets.qr_log_index', [ // تم تغيير اسم الـ View ليعكس المعرض
-            'qrsToDisplay' => $qrsToDisplay,
-            'pagination' => $strayPetsWithQRs // تمرير كائن التصفح لإنشاء الروابط
-        ]);
+        $strayPets = $query->latest()->paginate(50)->withQueryString(); // Paginate 50 per page and append query string
+
+        return view('stray_pets.index', compact('strayPets'));
     }
 
     /**
@@ -85,66 +86,149 @@ class StrayPetController extends Controller
         $targetUuid = $uuid ?? $request->query('uuid');
 
         if (!$targetUuid) {
-            // إذا لم يتم توفير UUID، فهذا يشير إلى محاولة الوصول لنموذج غير مرتبط بـ QR
-            // نوجه المستخدم إلى صفحة توليد QR لبدء العملية بشكل صحيح
             return redirect()->route('qrcodes.stray.generate.form')
-                             ->with('error', 'يجب إدخال البيانات عبر QR Code صالح أو من خلال تحديد حيوان موجود.');
+                             ->with('error', __('messages.data_entry_error_no_uuid'));
         }
 
-        // البحث عن الحيوان الشارد بالـ UUID
         $strayPet = StrayPet::where('uuid', $targetUuid)->firstOrFail();
+        $independentTeams = IndependentTeam::all();
+        $governorates = \App\Models\Governorate::all();
+
+        // --- Prefill Logic ---
+        $lastVetName = Auth::user()->name; // Default to user's name
+        $emergencyPhone = Auth::user()->phone; // Default to user's phone
+
+        $userTeam = Auth::user()->independentTeam;
+
+        if ($userTeam) {
+            // Find the last pet entered by the same team to get the vet's name
+            $lastPetByTeam = StrayPet::where('independent_team_id', $userTeam->id)
+                                     ->whereNotNull('medical_supervisor_info->vet_name')
+                                     ->latest('updated_at')
+                                     ->first();
+            
+            if ($lastPetByTeam) {
+                $lastVetName = $lastPetByTeam->medical_supervisor_info['vet_name'];
+            }
+
+            // Use the team's contact phone if available
+            if ($userTeam->contact_phone) {
+                $emergencyPhone = $userTeam->contact_phone;
+            }
+        }
         
-        // تجهيز بيانات التعبئة المسبقة للنموذج (سواء كانت موجودة في DB أو افتراضية)
+        // Prefill data for the form
         $prefill = [
-            'animal_type' => $strayPet->animal_type ?? '',
-            'gender' => $strayPet->gender ?? '',
-            'estimated_age' => $strayPet->estimated_age ?? '',
-            // تعبئة معلومات الاتصال والجهة الطبية الافتراضية من المستخدم الحالي إذا كانت فارغة
-            'emergency_contact_phone' => $strayPet->emergency_contact_phone ?? (Auth::user()->phone ?? Auth::user()->email),
-            'vet_name' => $strayPet->medical_supervisor_info['vet_name'] ?? Auth::user()->name,
-            'supervising_society' => $strayPet->medical_supervisor_info['supervising_society'] ?? '',
+            'vet_name' => $strayPet->medical_supervisor_info['vet_name'] ?? $lastVetName,
+            'emergency_contact_phone' => $strayPet->emergency_contact_phone ?? $emergencyPhone,
         ];
 
-        return view('stray_pets.data_entry', compact('strayPet', 'prefill'));
+        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates'));
+    }
+
+    /**
+     * عرض نموذج إدخال/تعديل بيانات حيوان شارد.
+     * Accessible by: Admin, Data Entry
+     */
+    public function edit(StrayPet $strayPet)
+    {
+        $independentTeams = IndependentTeam::all();
+        $governorates = \App\Models\Governorate::all();
+
+        // --- Prefill Logic ---
+        $lastVetName = Auth::user()->name; // Default to user's name
+        $emergencyPhone = Auth::user()->phone; // Default to user's phone
+
+        $userTeam = Auth::user()->independentTeam;
+
+        if ($userTeam) {
+            // Find the last pet entered by the same team to get the vet's name
+            $lastPetByTeam = StrayPet::where('independent_team_id', $userTeam->id)
+                                     ->whereNotNull('medical_supervisor_info->vet_name')
+                                     ->latest('updated_at')
+                                     ->first();
+            
+            if ($lastPetByTeam) {
+                $lastVetName = $lastPetByTeam->medical_supervisor_info['vet_name'];
+            }
+
+            // Use the team's contact phone if available
+            if ($userTeam->contact_phone) {
+                $emergencyPhone = $userTeam->contact_phone;
+            }
+        }
+        
+        // Prefill data for the form
+        $prefill = [
+            'vet_name' => $strayPet->medical_supervisor_info['vet_name'] ?? $lastVetName,
+            'emergency_contact_phone' => $strayPet->emergency_contact_phone ?? $emergencyPhone,
+        ];
+
+        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates'));
     }
 
     /**
      * حفظ (تحديث) بيانات حيوان شارد.
      * Accessible by: Admin, Data Entry
      */
-public function storeOrUpdate(Request $request)
-{
-    $request->validate([
-        'uuid' => 'required|uuid|exists:stray_pets,uuid',
-        'serial_number' => 'nullable|string|max:255|unique:stray_pets,serial_number,' . $request->uuid . ',uuid',
-        'city_province' => 'nullable|string|max:255', //nullable
-        'relocation_place' => 'nullable|string|max:255', //nullable
-        'animal_type' => 'nullable|string|max:255', //nullable
-        'custom_animal_type' => 'nullable|string|max:255',
-        'breed_name' => 'nullable|string|max:255',
-        'gender' => 'nullable|string|max:255', //nullable
-        'estimated_age' => 'nullable|string|max:255', //nullable
-        'color' => 'nullable|string|max:255', //nullable
-        'distinguishing_marks' => 'nullable|string',
-        'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
-        'emergency_contact' => 'nullable|string|max:255', //nullable
-        'vetName' => 'nullable|string|max:255', //nullable
-        'supervisingSociety' => 'nullable|string|max:255', //nullable
-        // تأكد من أن أي حقول JSON ذات صلة بـ arrays (مثل vaccine_type[]) ليست مطلوبة إلا إذا أردت
-    ]);
+    public function storeOrUpdate(Request $request)
+    {
+        $request->validate([
+            'uuid' => 'required|uuid|exists:stray_pets,uuid',
+            // Arabic fields
+            'city_province' => 'nullable|string|max:255',
+            'relocation_place' => 'nullable|string|max:255',
+            'breed_name' => 'nullable|string|max:255',
+            'color' => 'nullable|string|max:255',
+            'distinguishing_marks' => 'nullable|string',
+            // English fields
+            'city_province_en' => 'nullable|string|max:255',
+            'relocation_place_en' => 'nullable|string|max:255',
+            'breed_name_en' => 'nullable|string|max:255',
+            'color_en' => 'nullable|string|max:255',
+            'distinguishing_marks_en' => 'nullable|string',
+            // Other fields
+            'animal_type' => 'nullable|string|max:255',
+            'custom_animal_type' => 'nullable|string|max:255',
+            'gender' => 'nullable|string|max:255',
+            'estimated_age' => 'nullable|string|max:255',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'emergency_contact' => 'nullable|string|max:255',
+            'vetName' => 'nullable|string|max:255',
+            'supervising_association' => 'required|string|max:255',
+            'independent_team_id' => 'required|exists:independent_teams,id',
+        ]);
 
         $strayPet = StrayPet::where('uuid', $request->uuid)->firstOrFail();
         
-        // معالجة رفع الصورة
+        // --- Generate Serial Number if it doesn't exist ---
+        if (empty($strayPet->serial_number)) {
+            $team = IndependentTeam::find($request->independent_team_id);
+            $teamPrefix = $team ? strtoupper(substr(preg_replace('/[^a-zA-Z]/', '', $team->name), 0, 3)) : 'XXX';
+            
+            $animalCode = 'PET';
+            if ($request->animal_type === 'كلب') {
+                $animalCode = 'K9';
+            } elseif ($request->animal_type === 'قطة') {
+                $animalCode = 'CAT';
+            }
+
+            $count = StrayPet::where('independent_team_id', $request->independent_team_id)->whereNotNull('serial_number')->count() + 1;
+            $paddedCount = str_pad($count, 5, '0', STR_PAD_LEFT);
+
+            $strayPet->serial_number = "UV-{$teamPrefix}-{$animalCode}-{$paddedCount}";
+        }
+
+        // Handle image upload
         if ($request->hasFile('image')) {
-            if ($strayPet->image_path) { // حذف الصورة القديمة إذا وجدت
+            if ($strayPet->image_path) {
                 Storage::disk('public')->delete($strayPet->image_path);
             }
             $imagePath = $request->file('image')->store('stray_pets_images', 'public');
             $strayPet->image_path = $imagePath;
         }
 
-        // جمع البيانات المعقدة في JSON (تأكد من أن المفاتيح تتطابق مع الأسماء في النموذج)
+        // Prepare complex data fields
         $medicalProcedures = [
             'surgery_details' => $request->surgeryDetails,
             'other_treatments' => $request->otherTreatments,
@@ -154,9 +238,9 @@ public function storeOrUpdate(Request $request)
             'external' => [ 'treatment' => $request->externalParasiteTreatment, 'date' => $request->externalParasiteDate, 'dose' => $request->externalParasiteDose ],
         ];
         $vaccinationsDetails = [];
-        if ($request->has('vaccine_type')) { // إذا كان هناك أي مدخل لقاح
+        if ($request->has('vaccine_type')) {
             foreach ($request->vaccine_type as $key => $type) {
-                if (!empty($type)) { // تأكد من أن نوع اللقاح ليس فارغاً
+                if (!empty($type)) {
                     $vaccinationsDetails[] = [
                         'type' => $type,
                         'custom_name' => $request->other_vaccine_name[$key] ?? null,
@@ -172,29 +256,39 @@ public function storeOrUpdate(Request $request)
             'supervising_society' => $request->supervisingSociety,
         ];
 
-        // تحديث بيانات الحيوان في قاعدة البيانات
+        // Update the model
         $strayPet->fill([
-            'serial_number' => $request->serial_number,
+            // Arabic fields
             'city_province' => $request->city_province,
             'relocation_place' => $request->relocation_place,
-            'animal_type' => $request->animal_type,
-            'custom_animal_type' => $request->custom_animal_type,
             'breed_name' => $request->breed_name,
+            'color' => $request->color,
+            'distinguishing_marks' => $request->distinguishing_marks,
+            // English fields
+            'city_province_en' => $request->city_province_en,
+            'relocation_place_en' => $request->relocation_place_en,
+            'breed_name_en' => $request->breed_name_en,
+            'color_en' => $request->color_en,
+            'distinguishing_marks_en' => $request->distinguishing_marks_en,
+            // Other fields
+            'animal_type' => $request->animal_type === 'آخر' ? $request->custom_animal_type : $request->animal_type,
+            'custom_animal_type' => $request->animal_type === 'آخر' ? $request->custom_animal_type : null,
             'gender' => $request->gender,
             'estimated_age' => $request->estimated_age,
-            'color' => $request->color,
-            'distinguishing_marks' => $request->distinguishingMarks,
             'emergency_contact_phone' => $request->emergency_contact,
             'medical_procedures' => $medicalProcedures,
             'parasite_treatments' => $parasiteTreatments,
             'vaccinations_details' => $vaccinationsDetails,
             'medical_supervisor_info' => $medicalSupervisorInfo,
-            'last_updated_by' => Auth::id(), // تعيين من قام بالتحديث
+            'independent_team_id' => $request->independent_team_id,
+            'supervising_association' => $request->supervising_association,
+            'data_entered_status' => true,
+            'last_updated_by' => Auth::id(),
         ]);
 
         $strayPet->save();
         
-        return redirect()->route('stray-pets.log')->with('success', 'تم حفظ بيانات الحيوان بنجاح!');
+        return redirect()->route('stray-pets.index')->with('success', __('messages.pet_data_saved_success'));
     }
 
     /**
@@ -213,14 +307,15 @@ public function storeOrUpdate(Request $request)
      */
     public function showPublic(string $uuid)
     {
-        $strayPet = StrayPet::where('uuid', $uuid)->firstOrFail();
-        
+        $strayPet = StrayPet::with('independentTeam')->where('uuid', $uuid)->firstOrFail();
+        $totalPets = StrayPet::whereNotNull('serial_number')->count();
+
         // إذا لم يتم إدخال الرقم التسلسلي بعد، نعرض صفحة "قيد الإدخال"
         if (empty($strayPet->serial_number)) {
             return view('stray_pets.public_view_pending', compact('strayPet'));
         }
-        // وإلا، نعرض الصفحة العامة بجميع البيانات
-        return view('stray_pets.public_view', compact('strayPet'));
+        // وإلا، نعرض الصفحة العامة بجميع الب��انات
+        return view('stray_pets.public_view', compact('strayPet', 'totalPets'));
     }
 
     /**
@@ -229,7 +324,23 @@ public function storeOrUpdate(Request $request)
      */
     public function showQRGenerationForm()
     {
-        return view('stray_pets.generate_qrs');
+        $user = Auth::user();
+        $governorates = \App\Models\Governorate::orderBy('name')->get();
+        $independentTeams = IndependentTeam::orderBy('name')->get();
+
+        $selectedGovernorate = null;
+        $selectedTeam = null;
+        $supervisingAssociation = null;
+
+        if ($user->role !== 'admin') {
+            $selectedTeam = $user->independentTeam;
+            if($selectedTeam) {
+                $selectedGovernorate = $selectedTeam->governorate;
+                $supervisingAssociation = $selectedTeam->supervising_association;
+            }
+        }
+
+        return view('stray_pets.generate_qrs', compact('governorates', 'independentTeams', 'selectedGovernorate', 'selectedTeam', 'supervisingAssociation'));
     }
 
     /**
@@ -238,11 +349,16 @@ public function storeOrUpdate(Request $request)
      */
     public function generateQRCodes(Request $request)
     {
-        $request->validate([ 'num_qrcodes' => 'required|integer|min:1|max:500' ]);
+        $request->validate([ 
+            'num_qrcodes' => 'required|integer|min:1|max:500',
+            'governorate_id_prefill' => 'required|exists:governorates,id',
+            'independent_team_id_prefill' => 'required|exists:independent_teams,id',
+            'supervising_association_prefill' => 'required|string|max:255',
+        ]);
         
         $generatedQRs = [];
-        $prefillData = $request->only(['animal_type_prefill', 'gender_prefill', 'estimated_age_prefill']);
-        $defaultEmergencyContact = Auth::user()->phone ?? Auth::user()->email;
+        $prefillData = $request->only(['animal_type_prefill', 'gender_prefill', 'breed_name_prefill', 'emergency_phone_prefill']);
+        $defaultEmergencyContact = $prefillData['emergency_phone_prefill'] ?? Auth::user()->phone ?? Auth::user()->email;
         $defaultVetName = Auth::user()->name;
 
         for ($i = 0; $i < $request->num_qrcodes; $i++) {
@@ -250,14 +366,20 @@ public function storeOrUpdate(Request $request)
                 'uuid' => (string) Str::uuid(),
                 'animal_type' => $prefillData['animal_type_prefill'] ?? null,
                 'gender' => $prefillData['gender_prefill'] ?? null,
-                'estimated_age' => $prefillData['estimated_age_prefill'] ?? null,
+                'breed_name' => $prefillData['breed_name_prefill'] ?? 'بلدي كنعاني',
                 'emergency_contact_phone' => $defaultEmergencyContact,
-                'medical_supervisor_info' => ['vet_name' => $defaultVetName],
+                'supervising_association' => $request->supervising_association_prefill,
+                'independent_team_id' => $request->independent_team_id_prefill,
+                'medical_supervisor_info' => [
+                    'vet_name' => $defaultVetName,
+                    'supervising_society' => '', // This field is now redundant
+                ],
                 'created_by' => Auth::id(),
                 'last_updated_by' => Auth::id(),
             ]);
 
-$urlToEncode = route('stray-pets.public-view', ['uuid' => $strayPet->uuid]);            $options = new QROptions(['outputType' => QRCode::OUTPUT_IMAGE_PNG, 'eccLevel' => QRCode::ECC_L, 'scale' => 10]);
+            $urlToEncode = route('stray-pets.public-view', ['uuid' => $strayPet->uuid]);
+            $options = new QROptions(['outputType' => QRCode::OUTPUT_IMAGE_PNG, 'eccLevel' => QRCode::ECC_L, 'scale' => 10]);
             $base64Image = (new QRCode($options))->render($urlToEncode);
             $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $base64Image));
             $qrImagePath = 'qrcodes/stray_pets/' . $strayPet->uuid . '.png';
@@ -271,7 +393,7 @@ $urlToEncode = route('stray-pets.public-view', ['uuid' => $strayPet->uuid]);    
             ];
         }
         
-        return view('stray_pets.qr_print_preview', compact('generatedQRs'))->with('success', 'تم توليد رموز QR بنجاح!');
+        return view('stray_pets.qr_print_preview', compact('generatedQRs'))->with('success', __('messages.generate_qr_success'));
     }
 
     /**
@@ -304,18 +426,9 @@ $urlToEncode = route('stray-pets.public-view', ['uuid' => $strayPet->uuid]);    
     public function destroy(string $uuid)
     {
         $strayPet = StrayPet::where('uuid', $uuid)->firstOrFail();
+        $strayPet->delete(); // This will now perform a soft delete
         
-        // حذف الصور والـ QR Code من التخزين أولاً
-        if ($strayPet->image_path) {
-            Storage::disk('public')->delete($strayPet->image_path);
-        }
-        if ($strayPet->qrCodeLink && $strayPet->qrCodeLink->qr_image_path) {
-            Storage::disk('public')->delete($strayPet->qrCodeLink->qr_image_path);
-        }
-        
-        $strayPet->delete(); // ثم حذف السجل من قاعدة البيانات
-        
-        return redirect()->route('stray-pets.log')->with('success', 'تم حذف الحيوان الشارد بنجاح.');
+        return redirect()->route('stray-pets.index')->with('success', __('messages.pet_moved_to_trash_success'));
     }
 
     /**
@@ -326,22 +439,37 @@ $urlToEncode = route('stray-pets.public-view', ['uuid' => $strayPet->uuid]);    
     {
         $request->validate([ 'uuids' => 'required|array', 'uuids.*' => 'required|uuid|exists:stray_pets,uuid' ]);
         
-        $deletedCount = 0;
-        foreach ($request->uuids as $uuid) {
-            $strayPet = StrayPet::where('uuid', $uuid)->first(); // البحث عن كل حيوان بشكل فردي
-            if ($strayPet) {
-                // حذف الصور والـ QR Code من التخزين
-                if ($strayPet->image_path) {
-                    Storage::disk('public')->delete($strayPet->image_path);
-                }
-                if ($strayPet->qrCodeLink && $strayPet->qrCodeLink->qr_image_path) {
-                    Storage::disk('public')->delete($strayPet->qrCodeLink->qr_image_path);
-                }
-                $strayPet->delete(); // حذف السجل
-                $deletedCount++;
-            }
-        }
+        $deletedCount = StrayPet::whereIn('uuid', $request->uuids)->delete(); // Soft delete multiple
         
-        return redirect()->route('stray-pets.log')->with('success', "تم حذف $deletedCount حيوان بنجاح.");
+        return redirect()->route('stray-pets.index')->with('success', trans_choice('messages.pets_moved_to_trash_success', $deletedCount));
+    }
+
+    // --- Trash Bin Methods ---
+
+    public function trashIndex()
+    {
+        $trashedPets = StrayPet::onlyTrashed()->latest('deleted_at')->paginate(50);
+        return view('admin.trash.index', compact('trashedPets'));
+    }
+
+    public function trashRestore($id)
+    {
+        $pet = StrayPet::onlyTrashed()->findOrFail($id);
+        $pet->restore();
+        return redirect()->route('admin.trash.index')->with('success', __('messages.pet_restored_success'));
+    }
+
+    public function trashDestroy($id)
+    {
+        $pet = StrayPet::onlyTrashed()->findOrFail($id);
+        // Optional: Delete associated files from storage before force deleting
+        if ($pet->image_path) {
+            Storage::disk('public')->delete($pet->image_path);
+        }
+        if ($pet->qrCodeLink && $pet->qrCodeLink->qr_image_path) {
+            Storage::disk('public')->delete($pet->qrCodeLink->qr_image_path);
+        }
+        $pet->forceDelete();
+        return redirect()->route('admin.trash.index')->with('success', __('messages.pet_permanently_deleted_success'));
     }
 }

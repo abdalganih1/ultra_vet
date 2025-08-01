@@ -15,9 +15,13 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name',
+        'username',
         'email',
         'password',
         'role',
+        'phone_number',
+        'governorate_id',
+        'independent_team_id',
     ];
 
     protected $hidden = [
@@ -38,5 +42,15 @@ class User extends Authenticatable
     public function createdStrayPets()
     {
         return $this->hasMany(StrayPet::class, 'created_by');
+    }
+
+    public function governorate()
+    {
+        return $this->belongsTo(Governorate::class);
+    }
+
+    public function independentTeam()
+    {
+        return $this->belongsTo(IndependentTeam::class);
     }
 }

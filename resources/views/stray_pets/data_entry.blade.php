@@ -1,11 +1,10 @@
 @extends('layouts.app')
 
-@section('title', isset($strayPet) && $strayPet->serial_number ? 'تعديل بيانات حيوان' : 'إدخال بيانات حيوان جديد')
+@section('title', isset($strayPet) && $strayPet->data_entered_status ? 'تعديل بيانات حيوان' : 'إدخال بيانات حيوان جديد')
 
 @section('content')
 <header class="bg-light py-3 mb-4 border-bottom">
     <div class="container text-center">
-        {{-- تأكد من مسار الشعار الصحيح --}}
         <img src="{{ asset('images/img.jpg') }}" alt="UltraVet Logo" style="max-height: 60px;" class="mb-2">
         <h1 class="h3" style="color: var(--brand-teal);">نموذج إدخال بيانات الحيوانات الشاردة</h1>
         <p class="text-muted">مبادرة UltraVet لرعاية الحيوانات</p>
@@ -16,347 +15,300 @@
 </header>
 
 <div class="container">
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     <form id="animalDataForm" action="{{ route('stray-pets.store-or-update') }}" method="POST" enctype="multipart/form-data">
         @csrf
-        {{-- UUID الحيوان يتم تمريره كمُدخل مخفي --}}
         <input type="hidden" name="uuid" value="{{ $strayPet->uuid }}">
 
-        <!-- القسم الأول: البيانات الأساسية للحيوان -->
-        <div class="card form-section-card">
-            <div class="card-header">
-                البيانات الأساسية للحيوان
+        <!-- Section: Supervising Association and Team -->
+        <div class="card form-section-card mb-4">
+            <div class="card-header fw-bold">
+                <i class="fas fa-sitemap me-2"></i>الجهة المشرفة والفريق المنفذ
             </div>
             <div class="card-body p-4">
                 <div class="row g-3">
-                    {{-- الرقم التسلسلي للحيوان (تلقائي ويعرض UUID إذا لم يدخل بعد) --}}
                     <div class="col-md-6">
-                        <label for="serialNumber" class="form-label">الرقم التسلسلي للحيوان:</label>
-                        <input type="text" class="form-control @error('serial_number') is-invalid @enderror" id="serialNumber" name="serial_number" 
-                               placeholder="مثال: UV-K9-00123" 
-                               value="{{ old('serial_number', $strayPet->serial_number ?? $strayPet->uuid) }}" 
-                               readonly> {{-- حقل قراءة فقط --}}
-                        @error('serial_number')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        <label for="supervising_association" class="form-label">الجمعية المشرفة:</label>
+                        <select class="form-select @error('supervising_association') is-invalid @enderror" id="supervising_association" name="supervising_association" required @if(Auth::user()->role !== 'admin') disabled @endif>
+                            <option value="">اختر الجمعية...</option>
+                            @foreach($governorates as $governorate)
+                                <option value="فريق ultravet لمحافظة {{ $governorate->name }}" {{ old('supervising_association', $strayPet->supervising_association) == "فريق ultravet لمحافظة {$governorate->name}" ? 'selected' : '' }}>
+                                    فريق ultravet لمحافظة {{ $governorate->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @if(Auth::user()->role !== 'admin')
+                            <input type="hidden" name="supervising_association" value="{{ $strayPet->supervising_association }}">
+                        @endif
+                        @error('supervising_association')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- مكان العثور --}}
                     <div class="col-md-6">
-                        <label for="city_of_finding" class="form-label">مكان العثور (المحافظة/المدينة):</label>
-                        <input type="text" class="form-control @error('city_province') is-invalid @enderror" id="city_of_finding" name="city_province" placeholder="مثال: حماه \ طريق حلب" value="{{ old('city_province', $strayPet->city_province ?? '') }}">
+                        <label for="independent_team_id" class="form-label">الفريق المستقل المنفذ:</label>
+                        <select class="form-select @error('independent_team_id') is-invalid @enderror" id="independent_team_id" name="independent_team_id" required @if(Auth::user()->role !== 'admin') disabled @endif>
+                            <option value="">اختر الفريق...</option>
+                            @foreach($independentTeams as $team)
+                                <option value="{{ $team->id }}" data-governorate="{{ $team->governorate_id }}" {{ old('independent_team_id', $strayPet->independent_team_id) == $team->id ? 'selected' : '' }}>
+                                    {{ $team->name }} ({{ $team->governorate->name ?? 'N/A' }})
+                                </option>
+                            @endforeach
+                        </select>
+                        @if(Auth::user()->role !== 'admin')
+                            <input type="hidden" name="independent_team_id" value="{{ $strayPet->independent_team_id }}">
+                        @endif
+                        @error('independent_team_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Basic Animal Data -->
+        <div class="card form-section-card mb-4">
+            <div class="card-header fw-bold">
+                <i class="fas fa-paw me-2"></i>البيانات الأساسية للحيوان
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3">
+                    <div class="col-md-12">
+                        <label for="serial_number" class="form-label">الرقم التسلسلي للحيوان:</label>
+                        <input type="text" class="form-control bg-light" id="serial_number" name="serial_number" 
+                               placeholder="يتم توليده تلقائياً عند الحفظ" 
+                               value="{{ $strayPet->serial_number ?? '' }}" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="city_province" class="form-label">مكان العثور (عربي):</label>
+                        <input type="text" class="form-control @error('city_province') is-invalid @enderror" id="city_province" name="city_province" placeholder="مثال: حماه \ طريق حلب" value="{{ old('city_province', $strayPet->city_province) }}">
                         @error('city_province')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- مكان إعادة التوطين --}}
-                    <div class="col-md-12">
-                        <label for="relocationPlace" class="form-label">مكان إعادة التوطين:</label>
-                        <input type="text" class="form-control @error('relocation_place') is-invalid @enderror" id="relocationPlace" name="relocation_place" placeholder="مثال: ملجأ UltraVet، أو منزل التبني" value="{{ old('relocation_place', $strayPet->relocation_place ?? '') }}">
+                    <div class="col-md-6">
+                        <label for="city_province_en" class="form-label">Found Location (English):</label>
+                        <input type="text" class="form-control @error('city_province_en') is-invalid @enderror" id="city_province_en" name="city_province_en" placeholder="e.g., Hama / Aleppo Road" value="{{ old('city_province_en', $strayPet->city_province_en) }}">
+                        @error('city_province_en')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-md-6">
+                        <label for="relocation_place" class="form-label">مكان إطلاق السراح (عربي):</label>
+                        <input type="text" class="form-control @error('relocation_place') is-invalid @enderror" id="relocation_place" name="relocation_place" placeholder="مثال: نفس مكان الإمساك" value="{{ old('relocation_place', $strayPet->relocation_place) }}">
                         @error('relocation_place')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- نوع الحيوان --}}
+                     <div class="col-md-6">
+                        <label for="relocation_place_en" class="form-label">Release Location (English):</label>
+                        <input type="text" class="form-control @error('relocation_place_en') is-invalid @enderror" id="relocation_place_en" name="relocation_place_en" placeholder="e.g., Same as found" value="{{ old('relocation_place_en', $strayPet->relocation_place_en) }}">
+                        @error('relocation_place_en')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Animal Details & Appearance -->
+        <div class="card form-section-card mb-4">
+            <div class="card-header fw-bold">
+                <i class="fas fa-dog me-2"></i>تفاصيل ومظهر الحيوان
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3">
                     <div class="col-md-6">
-                        <label for="animalType" class="form-label">نوع الحيوان:</label>
-                        <select class="form-select @error('animal_type') is-invalid @enderror" id="animalType" name="animal_type">
-                            <option value="">اختر...</option>
-                            <option value="dog_baladi" {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'dog_baladi' ? 'selected' : '' }}>كلب / بلدي</option>
-                            <option value="dog_breed" {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'dog_breed' ? 'selected' : '' }}>كلب / سلالة أخرى</option>
-                            <option value="cat_baladi" {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'cat_baladi' ? 'selected' : '' }}>قط / بلدي</option>
-                            <option value="cat_breed" {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'cat_breed' ? 'selected' : '' }}>قط / سلالة أخرى</option>
-                            <option value="other" {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'other' ? 'selected' : '' }}>أخرى (يُحدد)</option>
+                        <label for="animal_type" class="form-label">نوع الحيوان:</label>
+                        <select class="form-select @error('animal_type') is-invalid @enderror" id="animal_type" name="animal_type">
+                            <option value="">اختر النوع...</option>
+                            <option value="كلب" {{ old('animal_type', $strayPet->animal_type ?? 'كلب') == 'كلب' ? 'selected' : '' }}>كلب</option>
+                            <option value="قطة" {{ old('animal_type', $strayPet->animal_type) == 'قطة' ? 'selected' : '' }}>قطة</option>
+                            <option value="آخر" {{ old('animal_type', $strayPet->animal_type) == 'آخر' ? 'selected' : '' }}>آخر (حدد)</option>
                         </select>
                         @error('animal_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- تحديد نوع الحيوان الآخر --}}
-                    <div class="col-md-6" id="otherAnimalTypeContainer" style="display: {{ old('animal_type', $strayPet->animal_type ?? ($prefill['animal_type'] ?? '')) == 'other' ? 'block' : 'none' }};">
-                        <label for="otherAnimalTypeName" class="form-label">تحديد نوع الحيوان الآخر:</label>
-                        <input type="text" class="form-control" id="otherAnimalTypeName" name="custom_animal_type" placeholder="مثال: أرنب، حصان" value="{{ old('custom_animal_type', $strayPet->custom_animal_type ?? '') }}">
+                    <div class="col-md-6" id="custom_animal_type_wrapper" style="{{ old('animal_type', $strayPet->animal_type) == 'آخر' ? '' : 'display: none;' }}">
+                        <label for="custom_animal_type" class="form-label">تحديد نوع الحيوان:</label>
+                        <input type="text" class="form-control @error('custom_animal_type') is-invalid @enderror" id="custom_animal_type" name="custom_animal_type" value="{{ old('custom_animal_type', $strayPet->custom_animal_type) }}">
+                        @error('custom_animal_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- اسم السلالة --}}
-                     <div class="col-md-6">
-                        <label for="breedName" class="form-label">اسم السلالة (إن وجدت):</label>
-                        <input type="text" class="form-control" id="breedName" name="breed_name" placeholder="مثال: شيرازي، جولدن ريتريفر" value="{{ old('breed_name', $strayPet->breed_name ?? '') }}">
+                    <div class="col-md-6">
+                        <label for="breed_name" class="form-label">السلالة (عربي):</label>
+                        <input type="text" class="form-control @error('breed_name') is-invalid @enderror" id="breed_name" name="breed_name" placeholder="مثال: بلدي كنعاني" value="{{ old('breed_name', $strayPet->breed_name) }}">
+                        @error('breed_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- الجنس --}}
+                    <div class="col-md-6">
+                        <label for="breed_name_en" class="form-label">Breed (English):</label>
+                        <input type="text" class="form-control @error('breed_name_en') is-invalid @enderror" id="breed_name_en" name="breed_name_en" placeholder="e.g., Canaan Dog" value="{{ old('breed_name_en', $strayPet->breed_name_en ?? 'Baladi Canaan') }}">
+                        @error('breed_name_en')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
                     <div class="col-md-6">
                         <label for="gender" class="form-label">الجنس:</label>
-                       <select class="form-select @error('gender') is-invalid @enderror" id="gender" name="gender">
-                            <option value="">اختر...</option>
-                            <option value="male" {{ old('gender', $strayPet->gender ?? ($prefill['gender'] ?? '')) == 'male' ? 'selected' : '' }}>ذكر</option>
-                            <option value="female" {{ old('gender', $strayPet->gender ?? ($prefill['gender'] ?? '')) == 'female' ? 'selected' : '' }}>أنثى</option>
-                            <option value="unknown" {{ old('gender', $strayPet->gender ?? ($prefill['gender'] ?? '')) == 'unknown' ? 'selected' : '' }}>غير معروف</option>
+                        <select class="form-select @error('gender') is-invalid @enderror" id="gender" name="gender">
+                            <option value="">اختر الجنس...</option>
+                            <option value="male" {{ old('gender', $strayPet->gender) == 'male' ? 'selected' : '' }}>ذكر</option>
+                            <option value="female" {{ old('gender', $strayPet->gender) == 'female' ? 'selected' : '' }}>أنثى</option>
                         </select>
                         @error('gender')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- العمر التقديري --}}
                     <div class="col-md-6">
-                        <label for="estimatedAge" class="form-label">العمر التقديري:</label>
-                        <input type="text" class="form-control @error('estimated_age') is-invalid @enderror" id="estimatedAge" name="estimated_age" placeholder="مثال: سنتان، 6 أشهر" value="{{ old('estimated_age', $strayPet->estimated_age ?? ($prefill['estimated_age'] ?? '')) }}">
+                        <label for="estimated_age" class="form-label">العمر التقريبي:</label>
+                        <input type="text" class="form-control @error('estimated_age') is-invalid @enderror" id="estimated_age" name="estimated_age" placeholder="مثال: سنتان" value="{{ old('estimated_age', $strayPet->estimated_age) }}">
                         @error('estimated_age')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- اللون --}}
                     <div class="col-md-6">
-                        <label for="color" class="form-label">اللون:</label>
-                        <input type="text" class="form-control @error('color') is-invalid @enderror" id="color" name="color" placeholder="مثال: أبيض، أسود مرقط" value="{{ old('color', $strayPet->color ?? '') }}">
+                        <label for="color" class="form-label">اللون (عربي):</label>
+                        <input type="text" class="form-control @error('color') is-invalid @enderror" id="color" name="color" placeholder="مثال: أسود وبني" value="{{ old('color', $strayPet->color) }}">
                         @error('color')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
-                    {{-- العلامات المميزة --}}
-                     <div class="col-md-12">
-                        <label for="distinguishingMarks" class="form-label">العلامات المميزة (إن وجدت):</label>
-                        <textarea class="form-control" id="distinguishingMarks" name="distinguishing_marks" rows="2" placeholder="وصف أي علامات فارقة أو مميزة">{{ old('distinguishing_marks', $strayPet->distinguishing_marks ?? '') }}</textarea>
-                    </div>
-                    {{-- صورة الحيوان --}}
-                    <div class="col-md-12">
-                        <label for="image" class="form-label">صورة الحيوان:</label>
-                        @if(isset($strayPet) && $strayPet->image_path)
-                            <img src="{{ asset('storage/' . $strayPet->image_path) }}" alt="صورة الحيوان" class="img-thumbnail mb-2" style="max-width: 200px;">
-                            <p class="small text-muted">الصورة الحالية. يمكنك رفع صورة جديدة لاستبدالها.</p>
-                        @endif
-                        <input class="form-control" type="file" id="image" name="image">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- القسم الثاني: الإجراءات الطبية والوقائية -->
-        <div class="card form-section-card">
-            <div class="card-header">
-                الإجراءات الطبية والوقائية
-            </div>
-            <div class="card-body p-4">
-                {{-- العملية الجراحية --}}
-                <div class="mb-3">
-                    <label for="surgeryDetails" class="form-label">العملية الجراحية (إن وجدت):</label>
-                    <textarea class="form-control" id="surgeryDetails" name="surgeryDetails" rows="3" placeholder="تفصيل العملية، التاريخ، والملاحظات (مثال: تعقيم، تاريخ: 10/10/2023، تمت بنجاح)">{{ old('surgeryDetails', $strayPet->medical_procedures['surgery_details'] ?? '') }}</textarea>
-                </div>
-                <hr>
-                <h6 class="mb-3" style="color: var(--brand-teal);">علاج الطفيليات:</h6>
-                {{-- الطفيليات الداخلية --}}
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <label for="internalParasiteTreatment" class="form-label">الطفيليات الداخلية (اسم العلاج):</label>
-                        <input type="text" class="form-control" id="internalParasiteTreatment" name="internalParasiteTreatment" placeholder="إدخال يدوي لاسم الدواء" value="{{ old('internalParasiteTreatment', $strayPet->parasite_treatments['internal']['treatment'] ?? '') }}">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="internalParasiteDate" class="form-label">تاريخ العلاج الداخلي:</label>
-                        <input type="date" class="form-control" id="internalParasiteDate" name="internalParasiteDate" value="{{ old('internalParasiteDate', $strayPet->parasite_treatments['internal']['date'] ?? '') }}">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="internalParasiteDose" class="form-label">الجرعة (الداخلية):</label>
-                        <input type="text" class="form-control" id="internalParasiteDose" name="internalParasiteDose" placeholder="مثال: قرص واحد، 2 مل" value="{{ old('internalParasiteDose', $strayPet->parasite_treatments['internal']['dose'] ?? '') }}">
-                    </div>
-                </div>
-                {{-- الطفيليات الخارجية --}}
-                <div class="row g-3 mt-2">
-                     <div class="col-md-4">
-                        <label for="externalParasiteTreatment" class="form-label">الطفيليات الخارجية (اسم العلاج):</label>
-                        <input type="text" class="form-control" id="externalParasiteTreatment" name="externalParasiteTreatment" placeholder="إدخال يدوي لاسم الدواء" value="{{ old('externalParasiteTreatment', $strayPet->parasite_treatments['external']['treatment'] ?? '') }}">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="externalParasiteDate" class="form-label">تاريخ العلاج الخارجي:</label>
-                        <input type="date" class="form-control" id="externalParasiteDate" name="externalParasiteDate" value="{{ old('externalParasiteDate', $strayPet->parasite_treatments['external']['date'] ?? '') }}">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="externalParasiteDose" class="form-label">الجرعة (الخارجية):</label>
-                        <input type="text" class="form-control" id="externalParasiteDose" name="externalParasiteDose" placeholder="مثال: أمبول واحد، رشة" value="{{ old('externalParasiteDose', $strayPet->parasite_treatments['external']['dose'] ?? '') }}">
-                    </div>
-                </div>
-                <hr>
-                {{-- علاجات أخرى --}}
-                 <div class="mb-3">
-                    <label for="otherTreatments" class="form-label">علاجات أخرى:</label>
-                    <textarea class="form-control" id="otherTreatments" name="otherTreatments" rows="3" placeholder="تفصيل أي علاجات إضافية تم تقديمها (مثال: علاج جرب، مضاد حيوي لالتهاب، فيتامينات)">{{ old('otherTreatments', $strayPet->medical_procedures['other_treatments'] ?? '') }}</textarea>
-                </div>
-                <hr>
-                <h6 class="mb-3" style="color: var(--brand-teal);">اللقاحات:</h6>
-                 <div id="vaccineEntries">
-                    @php $vaccines = old('vaccine_type', $strayPet->vaccinations_details ?? []); @endphp
-                    @if(empty($vaccines))
-                        @php $vaccines = [null]; @endphp {{-- ابدأ بمدخل فارغ واحد إذا لم يكن هناك بيانات سابقة --}}
-                    @endif
-
-                    @foreach($vaccines as $key => $vaccine)
-                    <div class="vaccine-entry border p-3 mb-3 rounded">
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <label class="form-label">نوع اللقاح:</label>
-                                <select class="form-select vaccine-type" name="vaccine_type[]">
-                                    <option value="">اختر...</option>
-                                    <option value="rabies" {{ ($vaccine['type'] ?? '') == 'rabies' ? 'selected' : '' }}>السعار</option>
-                                    <option value="heptavalent" {{ ($vaccine['type'] ?? '') == 'heptavalent' ? 'selected' : '' }}>سباعي</option>
-                                    <option value="other" {{ ($vaccine['type'] ?? '') == 'other' ? 'selected' : '' }}>لقاح آخر (يُحدد)</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3 other-vaccine-name-container" style="display: {{ ($vaccine['type'] ?? '') == 'other' ? 'block' : 'none' }};">
-                                 <label class="form-label">اسم اللقاح الآخر:</label>
-                                 <input type="text" class="form-control other-vaccine-name" name="other_vaccine_name[]" placeholder="اسم اللقاح" value="{{ $vaccine['custom_name'] ?? '' }}">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">الشركة المصنعة:</label>
-                                <input type="text" class="form-control vaccine-manufacturer" name="vaccine_manufacturer[]" placeholder="مثال: Nobivac, Zoetis" value="{{ $vaccine['manufacturer'] ?? '' }}">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">تاريخ الإعطاء:</label>
-                                <input type="date" class="form-control vaccine-date-given" name="vaccine_date_given[]" value="{{ $vaccine['date_given'] ?? '' }}">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">تاريخ الجرعة القادمة (إن وجدت):</label>
-                                <input type="date" class="form-control vaccine-date-next" name="vaccine_date_next[]" value="{{ $vaccine['date_next'] ?? '' }}">
-                            </div>
-                        </div>
-                        @if($key > 0)
-                            <button type="button" class="btn btn-danger btn-sm mt-2 remove-vaccine-entry"><i class="fas fa-minus me-1"></i> إزالة لقاح</button>
-                        @endif
-                    </div>
-                    @endforeach
-                 </div>
-                 <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="addVaccineEntry"><i class="fas fa-plus me-1"></i> إضافة لقاح آخر</button>
-            </div>
-        </div>
-
-        <!-- القسم الثالث: الجهة الطبية المشرفة -->
-        <div class="card form-section-card">
-            <div class="card-header">
-                الجهة الطبية المشرفة
-            </div>
-            <div class="card-body p-4">
-                <div class="row g-3">
                     <div class="col-md-6">
-                        <label for="vetName" class="form-label">اسم الطبيب البيطري أو المؤسسة:</label>
-                        <input type="text" class="form-control @error('vetName') is-invalid @enderror" id="vetName" name="vetName" placeholder="مثال: د. أحمد محمود / عيادة الأمل البيطرية" value="{{ old('vetName', $strayPet->medical_supervisor_info['vet_name'] ?? ($prefill['vet_name'] ?? '')) }}">
+                        <label for="color_en" class="form-label">Color (English):</label>
+                        <input type="text" class="form-control @error('color_en') is-invalid @enderror" id="color_en" name="color_en" placeholder="e.g., Black and Brown" value="{{ old('color_en', $strayPet->color_en) }}">
+                        @error('color_en')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-md-6">
+                        <label for="distinguishing_marks" class="form-label">علامات مميزة (عربي):</label>
+                        <textarea class="form-control @error('distinguishing_marks') is-invalid @enderror" id="distinguishing_marks" name="distinguishing_marks" rows="3">{{ old('distinguishing_marks', $strayPet->distinguishing_marks) }}</textarea>
+                        @error('distinguishing_marks')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-md-6">
+                        <label for="distinguishing_marks_en" class="form-label">Distinguishing Marks (English):</label>
+                        <textarea class="form-control @error('distinguishing_marks_en') is-invalid @enderror" id="distinguishing_marks_en" name="distinguishing_marks_en" rows="3">{{ old('distinguishing_marks_en', $strayPet->distinguishing_marks_en) }}</textarea>
+                        @error('distinguishing_marks_en')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                    <div class="col-12">
+                        <label for="image" class="form-label">صورة الحيوان:</label>
+                        <input class="form-control @error('image') is-invalid @enderror" type="file" id="image" name="image" accept="image/*">
+                        @error('image')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        @if($strayPet->image_path)
+                            <div class="mt-2">
+                                <img src="{{ asset('storage/' . $strayPet->image_path) }}" alt="صورة الحيوان الحالية" class="img-thumbnail" style="max-width: 200px;">
+                                <p class="text-muted small">الصورة الحالية</p>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Medical Information -->
+        <div class="card form-section-card mb-4">
+            <div class="card-header fw-bold">
+                <i class="fas fa-briefcase-medical me-2"></i>المعلومات الطبية
+            </div>
+            <div class="card-body p-4">
+                <!-- Medical Supervisor -->
+                <h5 class="card-title mb-3">المشرف الطبي</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label for="vetName" class="form-label">اسم الطبيب البيطري المسؤول:</label>
+                        <input type="text" class="form-control @error('vetName') is-invalid @enderror" id="vetName" name="vetName" value="{{ old('vetName', $prefill['vet_name']) }}">
                         @error('vetName')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
                     <div class="col-md-6">
-                        <label for="supervisingSociety" class="form-label">اسم الجمعية المشرفة (إن وجدت):</label>
-                        <input type="text" class="form-control" id="supervisingSociety" name="supervisingSociety" placeholder="مثال: جمعية حماية الحيوان بالقاهرة" value="{{ old('supervisingSociety', $strayPet->medical_supervisor_info['supervising_society'] ?? '') }}">
+                        <label for="supervisingSociety" class="form-label">الجمعية الطبية المشرفة (إن وجدت):</label>
+                        <input type="text" class="form-control @error('supervisingSociety') is-invalid @enderror" id="supervisingSociety" name="supervisingSociety" value="{{ old('supervisingSociety', $strayPet->medical_supervisor_info['supervising_society'] ?? '') }}">
+                        @error('supervisingSociety')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                    </div>
+                </div>
+
+                <!-- Surgeries and Treatments -->
+                <h5 class="card-title mb-3">العمليات الجراحية والعلاجات</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label for="surgeryDetails" class="form-label">تفاصيل عملية التعقيم (SPAY/NEUTER):</label>
+                        <textarea class="form-control" id="surgeryDetails" name="surgeryDetails" rows="3">{{ old('surgeryDetails', $strayPet->medical_procedures['surgery_details'] ?? '') }}</textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="otherTreatments" class="form-label">علاجات أخرى:</label>
+                        <textarea class="form-control" id="otherTreatments" name="otherTreatments" rows="3">{{ old('otherTreatments', $strayPet->medical_procedures['other_treatments'] ?? '') }}</textarea>
+                    </div>
+                </div>
+
+                <!-- Parasite Treatments -->
+                <h5 class="card-title mb-3">علاجات الطفيليات</h5>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <h6>الطفيليات الداخلية</h6>
+                        <label for="internalParasiteTreatment" class="form-label">العلاج:</label>
+                        <input type="text" class="form-control mb-2" id="internalParasiteTreatment" name="internalParasiteTreatment" value="{{ old('internalParasiteTreatment', $strayPet->parasite_treatments['internal']['treatment'] ?? '') }}">
+                        <label for="internalParasiteDate" class="form-label">التاريخ:</label>
+                        <input type="date" class="form-control mb-2" id="internalParasiteDate" name="internalParasiteDate" value="{{ old('internalParasiteDate', $strayPet->parasite_treatments['internal']['date'] ?? '') }}">
+                        <label for="internalParasiteDose" class="form-label">الجرعة:</label>
+                        <input type="text" class="form-control" id="internalParasiteDose" name="internalParasiteDose" value="{{ old('internalParasiteDose', $strayPet->parasite_treatments['internal']['dose'] ?? '') }}">
+                    </div>
+                    <div class="col-md-6">
+                        <h6>الطفيليات الخارجية</h6>
+                        <label for="externalParasiteTreatment" class="form-label">العلاج:</label>
+                        <input type="text" class="form-control mb-2" id="externalParasiteTreatment" name="externalParasiteTreatment" value="{{ old('externalParasiteTreatment', $strayPet->parasite_treatments['external']['treatment'] ?? '') }}">
+                        <label for="externalParasiteDate" class="form-label">التاريخ:</label>
+                        <input type="date" class="form-control mb-2" id="externalParasiteDate" name="externalParasiteDate" value="{{ old('externalParasiteDate', $strayPet->parasite_treatments['external']['date'] ?? '') }}">
+                        <label for="externalParasiteDose" class="form-label">الجرعة:</label>
+                        <input type="text" class="form-control" id="externalParasiteDose" name="externalParasiteDose" value="{{ old('externalParasiteDose', $strayPet->parasite_treatments['external']['dose'] ?? '') }}">
+                    </div>
+                </div>
+
+                <!-- Vaccinations -->
+                <h5 class="card-title mb-3">اللقاحات</h5>
+                <div id="vaccinations-container">
+                    @if(is_array(old('vaccine_type', $strayPet->vaccinations_details)))
+                        @foreach(old('vaccine_type', $strayPet->vaccinations_details) as $key => $vaccine)
+                            <div class="vaccine-entry row g-3 mb-3 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label">نوع اللقاح:</label>
+                                    <select class="form-select vaccine-type" name="vaccine_type[]">
+                                        <option value="">اختر...</option>
+                                        <option value="سعفة" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'سعفة' ? 'selected' : '' }}>سعفة</option>
+                                        <option value="رباعي" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'رباعي' ? 'selected' : '' }}>رباعي</option>
+                                        <option value="آخر" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'آخر' ? 'selected' : '' }}>آخر</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 other-vaccine-name-wrapper" style="{{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'آخر' ? '' : 'display: none;' }}">
+                                    <label class="form-label">اسم اللقاح الآخر:</label>
+                                    <input type="text" class="form-control" name="other_vaccine_name[]" value="{{ old('other_vaccine_name.'.$key, is_array($vaccine) ? ($vaccine['custom_name'] ?? '') : '') }}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">الشركة المصنعة:</label>
+                                    <input type="text" class="form-control" name="vaccine_manufacturer[]" value="{{ old('vaccine_manufacturer.'.$key, is_array($vaccine) ? ($vaccine['manufacturer'] ?? '') : '') }}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">تاريخ الإعطاء:</label>
+                                    <input type="date" class="form-control" name="vaccine_date_given[]" value="{{ old('vaccine_date_given.'.$key, is_array($vaccine) ? ($vaccine['date_given'] ?? '') : '') }}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">التاريخ التالي:</label>
+                                    <input type="date" class="form-control" name="vaccine_date_next[]" value="{{ old('vaccine_date_next.'.$key, is_array($vaccine) ? ($vaccine['date_next'] ?? '') : '') }}">
+                                </div>
+                                <div class="col-md-12 text-end">
+                                    <button type="button" class="btn btn-danger btn-sm remove-vaccine-entry">حذف</button>
+                                </div>
+                            </div>
+                        @endforeach
+                    @endif
+                </div>
+                <button type="button" id="add-vaccine-entry" class="btn btn-outline-primary mt-2"><i class="fas fa-plus me-2"></i>إضافة لقاح</button>
+            </div>
+        </div>
+
+        <!-- Contact Information -->
+        <div class="card form-section-card mb-4">
+            <div class="card-header fw-bold">
+                <i class="fas fa-address-book me-2"></i>معلومات الاتصال للطوارئ
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3">
+                    <div class="col-md-12">
+                        <label for="emergency_contact" class="form-label">رقم هاتف الطوارئ:</label>
+                        <input type="text" class="form-control @error('emergency_contact') is-invalid @enderror" id="emergency_contact" name="emergency_contact" value="{{ old('emergency_contact', $prefill['emergency_contact_phone']) }}">
+                        @error('emergency_contact')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- القسم الرابع: معلومات التواصل في حالات الطوارئ -->
-        <div class="card form-section-card">
-            <div class="card-header">
-                معلومات التواصل في حالات الطوارئ
-            </div>
-            <div class="card-body p-4">
-                 <div class="col-md-12">
-                    <label for="emergencyContact" class="form-label">رقم الهاتف / واتساب للطوارئ:</label>
-                    <input type="tel" class="form-control @error('emergency_contact') is-invalid @enderror" id="emergencyContact" name="emergency_contact" placeholder="مثال: 01xxxxxxxxx" value="{{ old('emergency_contact', $strayPet->emergency_contact_phone ?? ($prefill['emergency_contact_phone'] ?? '')) }}">
-                    @error('emergency_contact')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                </div>
-            </div>
-        </div>
-
-        <!-- زر الإرسال -->
         <div class="text-center mt-4 mb-5">
-            <button type="submit" class="btn btn-submit btn-lg px-5">
+            <button type="submit" class="btn btn-primary btn-lg px-5">
                 <i class="fas fa-save me-2"></i> حفظ البيانات
             </button>
         </div>
-
     </form>
 </div>
 
-@push('scripts')
-<script>
-    document.getElementById('currentYear').textContent = new Date().getFullYear();
-
-    // إظهار حقل "تحديد نوع الحيوان الآخر" عند اختيار "أخرى"
-    const animalTypeSelect = document.getElementById('animalType');
-    const otherAnimalTypeContainer = document.getElementById('otherAnimalTypeContainer');
-    animalTypeSelect.addEventListener('change', function() {
-        if (this.value === 'other') {
-            otherAnimalTypeContainer.style.display = 'block';
-            // otherAnimalTypeContainer.querySelector('input').required = true; // تم إزالة required
-        } else {
-            otherAnimalTypeContainer.style.display = 'none';
-            // otherAnimalTypeContainer.querySelector('input').required = false; // تم إزالة required
-            otherAnimalTypeContainer.querySelector('input').value = '';
-        }
-    });
-    // تشغيل عند التحميل الأولي
-    if (animalTypeSelect.value === 'other') {
-        otherAnimalTypeContainer.style.display = 'block';
-        // otherAnimalTypeContainer.querySelector('input').required = true; // تم إزالة required
-    }
-
-
-    // التعامل مع حقل "اسم اللقاح الآخر" لكل مدخل لقاح
-    function handleOtherVaccineName(vaccineEntry) {
-        const vaccineTypeSelect = vaccineEntry.querySelector('.vaccine-type');
-        const otherVaccineNameContainer = vaccineEntry.querySelector('.other-vaccine-name-container');
-        const otherVaccineNameInput = vaccineEntry.querySelector('.other-vaccine-name');
-
-        if (vaccineTypeSelect.value === 'other') {
-            otherVaccineNameContainer.style.display = 'block';
-            // otherVaccineNameInput.required = true; // تم إزالة required
-        } else {
-            otherVaccineNameContainer.style.display = 'none';
-            // otherVaccineNameInput.required = false; // تم إزالة required
-            otherVaccineNameInput.value = '';
-        }
-    }
-
-    // تطبيق الدالة على جميع مدخلات اللقاح الموجودة (للتحقق عند التحميل الأولي)
-    document.querySelectorAll('.vaccine-entry').forEach(entry => {
-        handleOtherVaccineName(entry);
-        entry.querySelector('.vaccine-type').addEventListener('change', function() {
-            handleOtherVaccineName(entry);
-        });
-    });
-
-    // إضافة مدخل لقاح جديد
-    const addVaccineButton = document.getElementById('addVaccineEntry');
-    const vaccineEntriesContainer = document.getElementById('vaccineEntries');
-
-    addVaccineButton.addEventListener('click', function() {
-        const newVaccineEntry = document.createElement('div');
-        newVaccineEntry.classList.add('vaccine-entry', 'border', 'p-3', 'mb-3', 'rounded');
-        newVaccineEntry.innerHTML = `
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">نوع اللقاح:</label>
-                    <select class="form-select vaccine-type" name="vaccine_type[]">
-                        <option value="">اختر...</option>
-                        <option value="rabies">السعار</option>
-                        <option value="heptavalent">سباعي</option>
-                        <option value="other">لقاح آخر (يُحدد)</option>
-                    </select>
-                </div>
-                <div class="col-md-3 other-vaccine-name-container" style="display: none;">
-                     <label class="form-label">اسم اللقاح الآخر:</label>
-                     <input type="text" class="form-control other-vaccine-name" name="other_vaccine_name[]" placeholder="اسم اللقاح">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">الشركة المصنعة:</label>
-                    <input type="text" class="form-control vaccine-manufacturer" name="vaccine_manufacturer[]" placeholder="مثال: Nobivac, Zoetis">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">تاريخ الإعطاء:</label>
-                    <input type="date" class="form-control vaccine-date-given" name="vaccine_date_given[]">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">تاريخ الجرعة القادمة (إن وجدت):</label>
-                    <input type="date" class="form-control vaccine-date-next" name="vaccine_date_next[]">
-                </div>
-            </div>
-            <button type="button" class="btn btn-danger btn-sm mt-2 remove-vaccine-entry"><i class="fas fa-minus me-1"></i> إزالة لقاح</button>
-        `;
-
-        // ربط مستمعات الأحداث للمدخل الجديد
-        newVaccineEntry.querySelector('.vaccine-type').addEventListener('change', function() {
-            handleOtherVaccineName(newVaccineEntry);
-        });
-        newVaccineEntry.querySelector('.remove-vaccine-entry').addEventListener('click', function() {
-            newVaccineEntry.remove();
-        });
-
-        vaccineEntriesContainer.appendChild(newVaccineEntry);
-    });
-
-    // إزالة مدخل لقاح
-    document.addEventListener('click', function(event) {
-        if (event.target.classList.contains('remove-vaccine-entry')) {
-            event.target.closest('.vaccine-entry').remove();
-        }
-    });
-
-</script>
-@endpush
 @endsection
