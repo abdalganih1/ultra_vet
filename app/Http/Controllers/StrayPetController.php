@@ -14,6 +14,14 @@ use Barryvdh\DomPDF\Facade\Pdf;
 
 class StrayPetController extends Controller
 {
+    private $animalTypes = [
+        ['ar' => 'كلب', 'en' => 'Dog'],
+        ['ar' => 'قطة', 'en' => 'Cat'],
+        ['ar' => 'حصان', 'en' => 'Horse'],
+        ['ar' => 'حمار', 'en' => 'Donkey'],
+        ['ar' => 'آخر', 'en' => 'Other'],
+    ];
+
     public function __construct()
     {
         // صلاحيات الوصول الأساسية للمتحكم
@@ -92,6 +100,7 @@ class StrayPetController extends Controller
 
         $strayPet = StrayPet::where('uuid', $targetUuid)->firstOrFail();
         $independentTeams = IndependentTeam::all();
+        $animalTypes = $this->animalTypes;
         $governorates = \App\Models\Governorate::all();
 
         // --- Prefill Logic ---
@@ -123,7 +132,7 @@ class StrayPetController extends Controller
             'emergency_contact_phone' => $strayPet->emergency_contact_phone ?? $emergencyPhone,
         ];
 
-        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates'));
+        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates', 'animalTypes'));
     }
 
     /**
@@ -133,6 +142,7 @@ class StrayPetController extends Controller
     public function edit(StrayPet $strayPet)
     {
         $independentTeams = IndependentTeam::all();
+        $animalTypes = $this->animalTypes;
         $governorates = \App\Models\Governorate::all();
 
         // --- Prefill Logic ---
@@ -164,7 +174,7 @@ class StrayPetController extends Controller
             'emergency_contact_phone' => $strayPet->emergency_contact_phone ?? $emergencyPhone,
         ];
 
-        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates'));
+        return view('stray_pets.data_entry', compact('strayPet', 'prefill', 'independentTeams', 'governorates', 'animalTypes'));
     }
 
     /**
@@ -189,13 +199,13 @@ class StrayPetController extends Controller
             'distinguishing_marks_en' => 'nullable|string',
             // Other fields
             'animal_type' => 'nullable|string|max:255',
+            'animal_type_en' => 'nullable|string|max:255',
             'custom_animal_type' => 'nullable|string|max:255',
             'gender' => 'nullable|string|max:255',
             'estimated_age' => 'nullable|string|max:255',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
             'emergency_contact' => 'nullable|string|max:255',
             'vetName' => 'nullable|string|max:255',
-            'supervising_association' => 'required|string|max:255',
             'independent_team_id' => 'required|exists:independent_teams,id',
         ]);
 
@@ -253,7 +263,6 @@ class StrayPetController extends Controller
         }
         $medicalSupervisorInfo = [
             'vet_name' => $request->vetName,
-            'supervising_society' => $request->supervisingSociety,
         ];
 
         // Update the model
@@ -272,6 +281,7 @@ class StrayPetController extends Controller
             'distinguishing_marks_en' => $request->distinguishing_marks_en,
             // Other fields
             'animal_type' => $request->animal_type === 'آخر' ? $request->custom_animal_type : $request->animal_type,
+            'animal_type_en' => $request->animal_type_en,
             'custom_animal_type' => $request->animal_type === 'آخر' ? $request->custom_animal_type : null,
             'gender' => $request->gender,
             'estimated_age' => $request->estimated_age,
@@ -281,7 +291,6 @@ class StrayPetController extends Controller
             'vaccinations_details' => $vaccinationsDetails,
             'medical_supervisor_info' => $medicalSupervisorInfo,
             'independent_team_id' => $request->independent_team_id,
-            'supervising_association' => $request->supervising_association,
             'data_entered_status' => true,
             'last_updated_by' => Auth::id(),
         ]);
@@ -330,17 +339,15 @@ class StrayPetController extends Controller
 
         $selectedGovernorate = null;
         $selectedTeam = null;
-        $supervisingAssociation = null;
 
         if ($user->role !== 'admin') {
             $selectedTeam = $user->independentTeam;
             if($selectedTeam) {
                 $selectedGovernorate = $selectedTeam->governorate;
-                $supervisingAssociation = $selectedTeam->supervising_association;
             }
         }
 
-        return view('stray_pets.generate_qrs', compact('governorates', 'independentTeams', 'selectedGovernorate', 'selectedTeam', 'supervisingAssociation'));
+        return view('stray_pets.generate_qrs', compact('governorates', 'independentTeams', 'selectedGovernorate', 'selectedTeam'));
     }
 
     /**
@@ -353,7 +360,6 @@ class StrayPetController extends Controller
             'num_qrcodes' => 'required|integer|min:1|max:500',
             'governorate_id_prefill' => 'required|exists:governorates,id',
             'independent_team_id_prefill' => 'required|exists:independent_teams,id',
-            'supervising_association_prefill' => 'required|string|max:255',
         ]);
         
         $generatedQRs = [];
@@ -368,11 +374,9 @@ class StrayPetController extends Controller
                 'gender' => $prefillData['gender_prefill'] ?? null,
                 'breed_name' => $prefillData['breed_name_prefill'] ?? 'بلدي كنعاني',
                 'emergency_contact_phone' => $defaultEmergencyContact,
-                'supervising_association' => $request->supervising_association_prefill,
                 'independent_team_id' => $request->independent_team_id_prefill,
                 'medical_supervisor_info' => [
                     'vet_name' => $defaultVetName,
-                    'supervising_society' => '', // This field is now redundant
                 ],
                 'created_by' => Auth::id(),
                 'last_updated_by' => Auth::id(),

@@ -13,12 +13,12 @@ class StrayPet extends Model
 
     protected $fillable = [
         'uuid', 'serial_number', 'city_province', 'relocation_place',
-        'animal_type', 'custom_animal_type', 'breed_name', 'gender',
+        'animal_type', 'animal_type_en', 'custom_animal_type', 'breed_name', 'gender',
         'estimated_age', 'color', 'distinguishing_marks', 'image_path',
         'medical_procedures', 'parasite_treatments', 'vaccinations_details',
         'medical_supervisor_info', 'emergency_contact_phone',
         'created_by', 'last_updated_by', 'independent_team_id',
-        'supervising_association', 'data_entered_status',
+        'data_entered_status',
         // English fields
         'breed_name_en', 'color_en', 'distinguishing_marks_en',
         'city_province_en', 'relocation_place_en',

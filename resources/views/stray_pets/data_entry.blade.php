@@ -29,29 +29,13 @@
         @csrf
         <input type="hidden" name="uuid" value="{{ $strayPet->uuid }}">
 
-        <!-- Section: Supervising Association and Team -->
         <div class="card form-section-card mb-4">
             <div class="card-header fw-bold">
-                <i class="fas fa-sitemap me-2"></i>الجهة المشرفة والفريق المنفذ
+                <i class="fas fa-sitemap me-2"></i>الفريق المنفذ
             </div>
             <div class="card-body p-4">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label for="supervising_association" class="form-label">الجمعية المشرفة:</label>
-                        <select class="form-select @error('supervising_association') is-invalid @enderror" id="supervising_association" name="supervising_association" required @if(Auth::user()->role !== 'admin') disabled @endif>
-                            <option value="">اختر الجمعية...</option>
-                            @foreach($governorates as $governorate)
-                                <option value="فريق ultravet لمحافظة {{ $governorate->name }}" {{ old('supervising_association', $strayPet->supervising_association) == "فريق ultravet لمحافظة {$governorate->name}" ? 'selected' : '' }}>
-                                    فريق ultravet لمحافظة {{ $governorate->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                        @if(Auth::user()->role !== 'admin')
-                            <input type="hidden" name="supervising_association" value="{{ $strayPet->supervising_association }}">
-                        @endif
-                        @error('supervising_association')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
-                    <div class="col-md-6">
+                    <div class="col-md-12">
                         <label for="independent_team_id" class="form-label">الفريق المستقل المنفذ:</label>
                         <select class="form-select @error('independent_team_id') is-invalid @enderror" id="independent_team_id" name="independent_team_id" required @if(Auth::user()->role !== 'admin') disabled @endif>
                             <option value="">اختر الفريق...</option>
@@ -118,10 +102,13 @@
                         <label for="animal_type" class="form-label">نوع الحيوان:</label>
                         <select class="form-select @error('animal_type') is-invalid @enderror" id="animal_type" name="animal_type">
                             <option value="">اختر النوع...</option>
-                            <option value="كلب" {{ old('animal_type', $strayPet->animal_type ?? 'كلب') == 'كلب' ? 'selected' : '' }}>كلب</option>
-                            <option value="قطة" {{ old('animal_type', $strayPet->animal_type) == 'قطة' ? 'selected' : '' }}>قطة</option>
-                            <option value="آخر" {{ old('animal_type', $strayPet->animal_type) == 'آخر' ? 'selected' : '' }}>آخر (حدد)</option>
+                            @foreach($animalTypes as $type)
+                                <option value="{{ $type['ar'] }}" data-en-name="{{ $type['en'] }}" {{ old('animal_type', $strayPet->animal_type) == $type['ar'] ? 'selected' : '' }}>
+                                    {{ $type['ar'] }}
+                                </option>
+                            @endforeach
                         </select>
+                        <input type="hidden" name="animal_type_en" id="animal_type_en" value="{{ old('animal_type_en', $strayPet->animal_type_en) }}">
                         @error('animal_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
                     <div class="col-md-6" id="custom_animal_type_wrapper" style="{{ old('animal_type', $strayPet->animal_type) == 'آخر' ? '' : 'display: none;' }}">
@@ -197,15 +184,10 @@
                 <!-- Medical Supervisor -->
                 <h5 class="card-title mb-3">المشرف الطبي</h5>
                 <div class="row g-3 mb-4">
-                    <div class="col-md-6">
+                    <div class="col-md-12">
                         <label for="vetName" class="form-label">اسم الطبيب البيطري المسؤول:</label>
                         <input type="text" class="form-control @error('vetName') is-invalid @enderror" id="vetName" name="vetName" value="{{ old('vetName', $prefill['vet_name']) }}">
                         @error('vetName')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
-                    <div class="col-md-6">
-                        <label for="supervisingSociety" class="form-label">الجمعية الطبية المشرفة (إن وجدت):</label>
-                        <input type="text" class="form-control @error('supervisingSociety') is-invalid @enderror" id="supervisingSociety" name="supervisingSociety" value="{{ old('supervisingSociety', $strayPet->medical_supervisor_info['supervising_society'] ?? '') }}">
-                        @error('supervisingSociety')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
                 </div>
 
@@ -255,8 +237,9 @@
                                     <label class="form-label">نوع اللقاح:</label>
                                     <select class="form-select vaccine-type" name="vaccine_type[]">
                                         <option value="">اختر...</option>
-                                        <option value="سعفة" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'سعفة' ? 'selected' : '' }}>سعفة</option>
-                                        <option value="رباعي" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'رباعي' ? 'selected' : '' }}>رباعي</option>
+                                        <option value="سعار" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'سعار' ? 'selected' : '' }}>سعار</option>
+                                        <option value="سباعي" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'سباعي' ? 'selected' : '' }}>سباعي</option>
+                                        <option value="ثلاثي" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'ثلاثي' ? 'selected' : '' }}>ثلاثي</option>
                                         <option value="آخر" {{ (is_array($vaccine) ? $vaccine['type'] : $vaccine) == 'آخر' ? 'selected' : '' }}>آخر</option>
                                     </select>
                                 </div>

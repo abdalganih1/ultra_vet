@@ -79,7 +79,10 @@
                     {{-- Basic Info --}}
                     <dl class="row info-list">
                         <dt class="col-sm-4"><i class="fas fa-tag me-2"></i>@lang('messages.animal_type'):</dt>
-                        <dd class="col-sm-8">{{ $strayPet->animal_type ?? '-' }} @if($strayPet->custom_animal_type) ({{ $strayPet->custom_animal_type }}) @endif</dd>
+                        <dd class="col-sm-8">
+                            {{ app()->getLocale() == 'en' ? ($strayPet->animal_type_en ?? $strayPet->animal_type) : $strayPet->animal_type }}
+                            @if($strayPet->custom_animal_type) ({{ $strayPet->custom_animal_type }}) @endif
+                        </dd>
 
                         <dt class="col-sm-4"><i class="fas fa-venus-mars me-2"></i>@lang('messages.gender'):</dt>
                         <dd class="col-sm-8">{{ $strayPet->gender ? __('messages.gender_' . strtolower($strayPet->gender)) : '-' }}</dd>
@@ -150,11 +153,6 @@
                         <dt class="col-sm-4"><i class="fas fa-user-md me-2"></i>@lang('messages.vet_or_org'):</dt>
                         <dd class="col-sm-8">{{ $strayPet->medical_supervisor_info['vet_name'] ?? '-' }}</dd>
                         
-                        @if($strayPet->medical_supervisor_info['supervising_society'])
-                        <dt class="col-sm-4"><i class="fas fa-hands-helping me-2"></i>@lang('messages.supervising_society'):</dt>
-                        <dd class="col-sm-8">{{ $strayPet->medical_supervisor_info['supervising_society'] }}</dd>
-                        @endif
-
                         <dt class="col-sm-4"><i class="fas fa-phone-alt me-2"></i>@lang('messages.emergency'):</dt>
                         <dd class="col-sm-8">{{ $strayPet->emergency_contact_phone ?? '-' }}</dd>
                         
